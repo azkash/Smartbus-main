@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/tyan/Documents/PlatformIO/Projects/Code_Slave_Gateway/src/**)",
+      "PowerShell($ErrorActionPreference='Stop'; $f=\"c:\\\\Users\\\\tyan\\\\Documents\\\\Development\\\\Ngoding\\\\work\\\\semarang's_projects\\\\Bus\\\\Code_PassengerSeat\\\\flash_all.ps1\"; $t=[System.Management.Automation.PSParser]::Tokenize\\(\\(Get-Content $f -Raw\\),[ref]$null\\); if\\($?\\){\"Syntax OK — $\\($t.Count\\) tokens parsed\"}; $ports=[System.IO.Ports.SerialPort]::GetPortNames\\(\\); \"Detected COM ports right now: $\\(if\\($ports\\){$ports -join ', '}else{'none'}\\)\")",
+      "Bash(echo \"=== napt headers ===\")",
+      "Read(//c/Users/tyan/.platformio/packages/**)",
+      "Bash(find \"$HOME/.platformio/packages\" -maxdepth 1 -iname \"*arduinoespressif32*\" 2>/dev/null)",
+      "Bash(xargs grep -i \"napt\")",
+      "Read(//c/Users/tyan/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/**)",
+      "Read(//c/Users/tyan/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/lib/**)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\tyan\\Documents\\PlatformIO\\Projects\\Code_Slave_Gateway"
+    ]
+  }
+}

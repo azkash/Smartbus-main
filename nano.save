@@ -1,0 +1,20 @@
+# Flutter/Dart
+.dart_tool/
+.packages
+.pub/
+build/
+
+# Android
+android/.gradle/
+android/app/build/
+
+# iOS
+ios/Pods/
+
+# IDE
+.idea/
+*.iml
+
+# Backup
+android_backup/
+

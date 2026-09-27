@@ -1,0 +1,38 @@
+# Flutter/Dart
+.dart_tool/
+.packages
+.pub/
+build/
+
+# Android
+android/.gradle/
+android/app/build/
+
+# iOS
+ios/Pods/
+
+# IDE
+.idea/
+*.iml
+
+# Backup
+android_backup/
+
+# Secrets & Environment
+.env
+*.secret
+.secrets/
+
+# Large 3D Models (>100MB)
+assets/images/3d/*.glb
+assets/images/3d/*.obj
+
+# AI & Assistant Documentation
+refactoring_plan.md
+integration_guide.md
+flutter_integration_instructions.md
+lessons_learned.md
+.agents/
+.gemini/
+scratch/
+

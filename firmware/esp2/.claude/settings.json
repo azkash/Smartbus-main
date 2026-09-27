@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pio run *)",
+      "Read(//c/Users/tyan/AppData/Roaming/Code/User/**)",
+      "Bash(pio project *)",
+      "Bash(find ~/.platformio/packages -name \"sdkconfig.h\" 2>/dev/null | grep -i esp32 | head; echo \"=== includePath count in config ===\"; grep -c \"includePath\\\\|browse\" \"c:/Users/tyan/Documents/Development/Ngoding/work/semarang's_projects/Bus/Code_PassengerSeat/.vscode/c_cpp_properties.json\")",
+      "Read(//c/Users/tyan/.platformio/packages/**)",
+      "Bash(grep -o \"tools/sdk/esp32/[a-z_]*/include\" \"c:/Users/tyan/Documents/Development/Ngoding/work/semarang's_projects/Bus/Code_PassengerSeat/.vscode/c_cpp_properties.json\" 2>/dev/null | head; echo \"=== qio_qspi sdkconfig present? ===\"; ls ~/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/qio_qspi/include/sdkconfig.h 2>/dev/null && echo OK)",
+      "Read(//c/Users/tyan/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/qio_qspi/include/**)",
+      "Bash(echo \"=== does dio_qspi have sdkconfig.h? ===\"; ls ~/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/dio_qspi/include/sdkconfig.h 2>/dev/null && echo \"EXISTS\" || echo \"MISSING\"; echo \"=== where exactly does config look for sdkconfig \\(grep whole file\\) ===\"; grep -n \"qspi\" \"c:/Users/tyan/Documents/Development/Ngoding/work/semarang's_projects/Bus/Code_PassengerSeat/.vscode/c_cpp_properties.json\")",
+      "Read(//c/Users/tyan/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/dio_qspi/include/**)",
+      "Read(//c/Users/tyan/.platformio/packages/framework-arduinoespressif32/tools/sdk/**)",
+      "Read(//c/Users/tyan/.platformio/platforms/**)",
+      "Read(//c/Users/tyan/.platformio/platforms/espressif32/**)",
+      "Read(//c/Users/tyan/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/**)",
+      "Bash(grep -o \"[a-zA-Z0-9_\\\\\\\\\\\\\\\\/.:-]*qspi[a-zA-Z0-9_\\\\\\\\\\\\\\\\/.:-]*\" .pio/build/esp32dev/idedata.json)",
+      "Bash(echo \"=== platform 6.13.0 -> framework version ===\"; grep -A3 \"framework-arduinoespressif32\\\\b\" ~/.platformio/platforms/espressif32@6.13.0/platform.json 2>/dev/null | head; echo \"=== platform 5.4.0 -> framework version ===\"; grep -A3 \"framework-arduinoespressif32\\\\b\" ~/.platformio/platforms/espressif32@5.4.0/platform.json 2>/dev/null | head)",
+      "Read(//c/Users/tyan/.platformio/platforms/espressif32@6.13.0/**)",
+      "Read(//c/Users/tyan/.platformio/platforms/espressif32@5.4.0/**)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('tools/set_seat_id.py'\\).read\\(\\)\\); print\\('set_seat_id.py: OK'\\)\")",
+      "Bash(python tools/set_seat_id.py --list)",
+      "Bash(pio pkg *)",
+      "Read(//c/Users/tyan/Documents/PlatformIO/Projects/Code_Slave_Gateway/**)",
+      "Read(//c/Users/tyan/Documents/PlatformIO/Projects/Code_Slave_Gateway/src/**)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\tyan\\AppData\\Roaming\\Code\\User"
+    ]
+  }
+}

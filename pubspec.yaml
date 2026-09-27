@@ -1,0 +1,75 @@
+name: safety_protection_system
+description: Bus Control - UI with RGB & Color controls
+publish_to: "none"
+version: 0.0.1
+
+environment:
+  sdk: ">=2.18.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.2
+  mqtt_client: ^9.6.1
+  provider: ^6.0.5
+  flutter_colorpicker: ^1.1.0
+  model_viewer_plus: ^1.9.3
+  video_player: ^2.6.0
+  url_launcher: ^6.1.10
+  webview_flutter: ^4.2.2
+  geolocator: ^11.0.0 
+  geocoding: ^3.0.0
+  http: ^1.2.0
+  shared_preferences: ^2.5.5
+  flutter_native_splash: ^2.4.7
+  shelf: ^1.4.2
+  collection: ^1.19.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+  flutter_launcher_icons: ^0.13.1
+
+
+# ===== KONFIGURASI ICON LAUNCHER =====
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/icons/cvgeslogo-bg.png"
+
+
+# ===== KONFIGURASI SPLASH SCREEN =====
+flutter_native_splash:
+  color: "#0A0D13"
+  image: "assets/images/newa.png" # Ubah image_path menjadi image
+  android: true
+  ios: true
+  android_gravity: center
+  ios_content_mode: center
+  fullscreen: true
+
+  android_12:
+    image: "assets/images/newa.png" 
+    color: "#0A0D13"
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/web_app/dist/
+    - assets/web_app/dist/assets/
+    - assets/icons/cvgeslogo-bg.png
+    - assets/videos/dashboard.mkv
+    - assets/images/dimmerImage.png
+    - assets/images/bus_body.png
+    - assets/images/depan.png
+    - assets/images/logo.png
+    - assets/images/newarmd.png
+    - assets/images/LEDMatrix.png
+    - assets/images/rgbImage.png
+    - assets/images/rgbS.jpeg
+    - assets/images/rgbT.jpeg
+    - assets/images/baru.png
+    - assets/images/newa.png
