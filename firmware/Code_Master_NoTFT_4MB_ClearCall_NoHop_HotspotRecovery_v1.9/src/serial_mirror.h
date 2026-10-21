@@ -83,5 +83,3 @@ class MirroredSerial : public Print {
 static MirroredSerial SmartBusSerial(::Serial);
 #undef Serial
 #define Serial SmartBusSerial
-
-

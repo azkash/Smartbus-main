@@ -32,7 +32,7 @@ static const char WEB_MONITOR_HTML[] PROGMEM = R"HTML(
     <div class="card"><div class="label">Uplink</div><div class="value" id="uplink">-</div></div>
     <div class="card"><div class="label">Free heap</div><div class="value" id="heap">-</div></div>
   </section>
-  <section class="clientbox"><h2>Seat SmartBus (router UDP + legacy)</h2><table><thead><tr><th>ID</th><th>Status</th><th>Transport</th><th>IP</th><th>Occupancy</th><th>Call</th><th>Last seen</th></tr></thead><tbody id="seatrows"><tr><td colspan="7">Memuat...</td></tr></tbody></table></section>
+  <section class="clientbox"><h2>Seat SmartBus (router UDP + legacy)</h2><table><thead><tr><th>ID</th><th>Status</th><th>Transport</th><th>IP</th><th>Occupancy</th><th>Call</th><th>Seatbelt</th><th>Last seen</th></tr></thead><tbody id="seatrows"><tr><td colspan="8">Memuat...</td></tr></tbody></table></section>
   <div class="toolbar"><strong>Live serial output</strong><button id="pause">Pause</button><button id="bottom">Ke bawah</button></div>
   <pre id="terminal">Menghubungkan ke ESP Master...</pre>
   <footer>Log menyimpan 80 baris terakhir dan diperbarui setiap 2 detik.</footer>
@@ -40,7 +40,7 @@ static const char WEB_MONITOR_HTML[] PROGMEM = R"HTML(
 const terminal=document.getElementById('terminal'),pauseButton=document.getElementById('pause');let paused=false;
 const setState=(id,text,ok)=>{const el=document.getElementById(id);el.textContent=text;el.className='value '+(ok===undefined?'':ok?'good':'bad')};
 function renderClients(items){const body=document.getElementById('clientrows');body.textContent='';if(!items.length){const row=body.insertRow();const cell=row.insertCell();cell.colSpan=4;cell.textContent='Tidak ada klien';return}for(const c of items){const row=body.insertRow();for(const value of [c.name,c.ip,c.mac,c.rssi+' dBm'])row.insertCell().textContent=value}}
-function renderSeats(items){const body=document.getElementById('seatrows');body.textContent='';if(!items.length){const row=body.insertRow();const cell=row.insertCell();cell.colSpan=7;cell.textContent='Belum ada seat';return}for(const s of items){const row=body.insertRow();for(const value of [s.id,s.online?'ONLINE':'OFFLINE',s.transport,s.ip||'-',s.occupied?'YES':'no',s.call?'YES':'no',s.age+' s'])row.insertCell().textContent=value}}
+function renderSeats(items){const body=document.getElementById('seatrows');body.textContent='';if(!items.length){const row=body.insertRow();const cell=row.insertCell();cell.colSpan=8;cell.textContent='Belum ada seat';return}for(const s of items){const belt=!s.online?'-':s.seatbeltAlert?'NO BELT':s.seatbelt?'ok':'-';const row=body.insertRow();for(const value of [s.id,s.online?'ONLINE':'OFFLINE',s.transport,s.ip||'-',s.occupied?'YES':'no',s.call?'YES':'no',belt,s.age+' s'])row.insertCell().textContent=value}}
 async function updateStatus(){try{const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw 0;const s=await r.json();setState('routerip',s.uplink?s.uplinkIp:'DOWN',s.uplink);setState('seats',s.seatsOnline+'/'+s.seatsKnown,s.seatsOnline===s.seatsKnown);setState('headunit',s.headunit?'ONLINE':'OFFLINE',s.headunit);setState('uplink',s.uplink?s.uplinkSsid+' · '+s.rssi+' dBm':'DOWN',s.uplink);setState('heap',Math.round(s.heap/1024)+' KB');renderSeats(s.seatList||[]);document.getElementById('connection').innerHTML='<span class="dot"></span>Terhubung'}catch(e){document.getElementById('connection').innerHTML='<span class="dot" style="background:var(--bad);box-shadow:none"></span>Terputus'}}
 async function updateLog(){if(paused)return;try{const nearBottom=terminal.scrollHeight-terminal.scrollTop-terminal.clientHeight<55;const r=await fetch('/api/log',{cache:'no-store'});if(!r.ok)throw 0;terminal.textContent=await r.text();if(nearBottom)terminal.scrollTop=terminal.scrollHeight}catch(e){}}
 pauseButton.onclick=()=>{paused=!paused;pauseButton.textContent=paused?'Lanjut':'Pause';if(!paused)updateLog()};document.getElementById('bottom').onclick=()=>terminal.scrollTop=terminal.scrollHeight;
@@ -59,7 +59,10 @@ static void webMonitorSendStatus() {
     if ((now - seats[i].lastSeen) < SEAT_OFFLINE_MS) ++online;
   }
 
-  DynamicJsonDocument doc(8192);
+  // Sized for the 64-slot production roster. The monitor object carries more
+  // fields per seat than the compact WebSocket roster, so 8 KB is too tight
+  // once the fleet grows beyond the original 32-seat prototype.
+  DynamicJsonDocument doc(16384);
   doc["uptime"] = millis() / 1000UL;
   doc["heap"] = ESP.getFreeHeap();
   doc["seatsKnown"] = known;
@@ -81,6 +84,8 @@ static void webMonitorSendStatus() {
     seat["ip"] = seats[i].viaUdp ? seats[i].sourceIp.toString() : String("");
     seat["occupied"] = isOnline && seats[i].occupied;
     seat["call"] = isOnline && (seats[i].calling || seats[i].callPending);
+    seat["seatbelt"] = isOnline && seats[i].seatbelt;
+    seat["seatbeltAlert"] = isOnline && seats[i].seatbeltAlert;
     seat["age"] = (now - seats[i].lastSeen) / 1000UL;
   }
   String json;
@@ -114,5 +119,3 @@ static void webMonitorInit() {
 static void webMonitorHandle() {
   webMonitorServer.handleClient();
 }
-
-

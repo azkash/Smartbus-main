@@ -21,5 +21,3 @@ constexpr bool shouldStartStaConnect(bool staConnected,
   return true;
 }
 
-
-

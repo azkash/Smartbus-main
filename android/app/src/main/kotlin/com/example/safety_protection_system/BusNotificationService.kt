@@ -39,6 +39,8 @@ class BusNotificationService : Service() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val callState = CallNotificationState()
     private var reconnectRunnable: Runnable? = null
+    private var watchdogRunnable: Runnable? = null
+    private var lastWsMessageTime: Long = System.currentTimeMillis()
     private var lastIp: String = "bus-led.local"
 
     // System Floating Overlay Window
@@ -118,8 +120,10 @@ class BusNotificationService : Service() {
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .writeTimeout(10, TimeUnit.SECONDS)
             .connectTimeout(10, TimeUnit.SECONDS)
+            .pingInterval(4, TimeUnit.SECONDS)
             .build()
 
+        startWatchdog()
         scheduleReconnect(0)
     }
 
@@ -136,6 +140,7 @@ class BusNotificationService : Service() {
         instance = null
         removeFloatingOverlay()
         reconnectRunnable?.let { mainHandler.removeCallbacks(it) }
+        watchdogRunnable?.let { mainHandler.removeCallbacks(it) }
         disconnectWebSocket()
         Log.d(TAG, "Background Service Destroyed")
     }
@@ -302,7 +307,16 @@ class BusNotificationService : Service() {
         if (seatIds.isEmpty()) return
 
         mainHandler.post {
-            // Firmware menerima tepat satu ID pada setiap perintah clearCall.
+            // Jika lebih dari 1 kursi atau semua kursi aktif di-clear, kirim id "all"
+            // agar Master membersihkan seluruh panggilan secara atomik.
+            if (seatIds.size > 1 || callState.snapshot().all { seatIds.contains(it) }) {
+                val payloadAll = JSONObject()
+                    .put("action", "clearCall")
+                    .put("id", "all")
+                    .toString()
+                webSocket?.send(payloadAll)
+            }
+            // Kirim per-ID untuk kompatibilitas
             seatIds.forEach { id ->
                 val payload = JSONObject()
                     .put("action", "clearCall")
@@ -408,6 +422,7 @@ class BusNotificationService : Service() {
         webSocket = okHttpClient?.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.d(TAG, "WebSocket lokal terhubung di latar belakang!")
+                lastWsMessageTime = System.currentTimeMillis()
                 // Do not register this second socket as the head unit. The
                 // Flutter UI owns pairing responses; claiming that role here
                 // would replace its client number on the ESP32 Master.
@@ -416,6 +431,7 @@ class BusNotificationService : Service() {
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                lastWsMessageTime = System.currentTimeMillis()
                 parseIncomingMessage(text)
             }
 
@@ -428,6 +444,20 @@ class BusNotificationService : Service() {
                 scheduleReconnect(4000)
             }
         })
+    }
+
+    private fun startWatchdog() {
+        watchdogRunnable = object : Runnable {
+            override fun run() {
+                val silenceMs = System.currentTimeMillis() - lastWsMessageTime
+                if (webSocket != null && silenceMs > 12000L) {
+                    Log.w(TAG, "Watchdog: WebSocket latar belakang tidak menerima pesan selama ${silenceMs}ms. Menyambung ulang...")
+                    scheduleReconnect(0)
+                }
+                mainHandler.postDelayed(this, 5000L)
+            }
+        }
+        mainHandler.postDelayed(watchdogRunnable!!, 5000L)
     }
 
     private fun disconnectWebSocket() {

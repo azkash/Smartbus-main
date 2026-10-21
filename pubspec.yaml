@@ -43,15 +43,11 @@ flutter_icons:
 # ===== KONFIGURASI SPLASH SCREEN =====
 flutter_native_splash:
   color: "#0A0D13"
-  image: "assets/images/newa.png" # Ubah image_path menjadi image
   android: true
   ios: true
-  android_gravity: center
-  ios_content_mode: center
   fullscreen: true
 
   android_12:
-    image: "assets/images/newa.png" 
     color: "#0A0D13"
 
 flutter:

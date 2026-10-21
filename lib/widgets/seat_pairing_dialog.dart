@@ -442,15 +442,78 @@ class _SeatPairingDialogState extends State<SeatPairingDialog> {
     );
   }
 
+  void _showUnpairDialog(String seatId) {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: const Color(0xFF0F172A),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: Color(0xFFEF4444), width: 1.5),
+        ),
+        title: Text(
+          "Hapus Pairing Kursi $seatId?",
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: Text(
+          "Apakah Anda yakin ingin menghapus pairing Kursi $seatId? Modul ESP32 kursi ini akan di-reset kembali ke RandomID.",
+          style: const TextStyle(
+            color: Color(0xFFCBD5E1),
+            fontSize: 13,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx),
+            child: const Text("Batal", style: TextStyle(color: Color(0xFF94A3B8))),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () async {
+              Navigator.pop(dialogCtx);
+              final mqtt = Provider.of<MqttService>(context, listen: false);
+              await mqtt.unpairSeat(seatId);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text("✅ Pairing Kursi $seatId berhasil dihapus"),
+                    backgroundColor: const Color(0xFF059669),
+                  ),
+                );
+                if (_selectedSeatId == seatId) {
+                  setState(() {
+                    _selectedSeatId = null;
+                  });
+                }
+              }
+            },
+            child: const Text("Hapus Pairing"),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSeatButton(String id, Set<String> registeredSeats) {
     final isSelected = _selectedSeatId == id;
     final isAlreadyRegistered = registeredSeats.contains(id);
 
     return InkWell(
       onTap: () {
-        setState(() {
-          _selectedSeatId = id;
-        });
+        if (isAlreadyRegistered) {
+          _showUnpairDialog(id);
+        } else {
+          setState(() {
+            _selectedSeatId = id;
+          });
+        }
       },
       borderRadius: BorderRadius.circular(8),
       child: AnimatedContainer(

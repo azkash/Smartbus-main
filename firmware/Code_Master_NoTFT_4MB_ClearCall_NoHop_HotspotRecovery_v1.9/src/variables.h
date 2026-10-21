@@ -195,5 +195,3 @@ uint8_t   ledR = 0, ledG = 0, ledB = 0;
 uint8_t   ledBrightness = 128;
 LedEffect ledEffect = EFF_SOLID;
 volatile bool ledOn = true;
-
-

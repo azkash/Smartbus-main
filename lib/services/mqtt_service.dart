@@ -447,7 +447,11 @@ class MqttService with ChangeNotifier {
                       // mungkin sampai lewat broadcast master.
                     } else if (data['unassigned'] == true &&
                         (data['sensorState'] == 1 ||
-                            data['sensorState'] == '1') &&
+                            data['sensorState'] == '1' ||
+                            data['state'] == 1 ||
+                            data['state'] == '1' ||
+                            data['seatOccupied'] == true ||
+                            data['occupied'] == true) &&
                         data.containsKey('uid') &&
                         deviceState.pendingPairingUid == null) {
                       final uid = data['uid'].toString();
@@ -560,6 +564,23 @@ class MqttService with ChangeNotifier {
     } finally {
       if (identical(_pairingCompleter, completer)) _pairingCompleter = null;
     }
+  }
+
+  Future<void> unpairSeat(String seatId) async {
+    final payload = {
+      "action": "unpairSeat",
+      "id": seatId,
+    };
+    final jsonStr = jsonEncode(payload);
+    addLog("Unpair Kursi", type: LogType.action, message: "Kursi: $seatId");
+    if (_isLocalWsConnected && _localSocket != null) {
+      try {
+        _localSocket!.add(jsonStr);
+      } catch (e) {
+        addLog("Gagal kirim unpair ke WS", type: LogType.error, message: e.toString());
+      }
+    }
+    publish(topicPub, payload);
   }
 
   // ===================== FUNGSI KONEKSI UTAMA =====================

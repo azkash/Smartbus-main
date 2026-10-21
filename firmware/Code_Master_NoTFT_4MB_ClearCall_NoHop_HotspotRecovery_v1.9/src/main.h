@@ -32,18 +32,25 @@ static void apAdvertiseDns();
 // static char          mqttSeatId[32]   = {0};
 
 // ─── Seat-call announcement queue ─────────────────────────────────────
-// Filled in onWsEvent (WS task), drained in audioTask. A dedicated audio task
-// keeps the blocking playTrack()/waitForAudioDone() sequence away from both
-// the WebSocket loop and the LED animation task. Carries the seat id so the
-// announcement (and serial log) knows *which* seat called.
-struct CallEvent { char id[32]; };
+// Filled in onWsEvent/udpHandleSeat, drained in audioTask. A dedicated audio
+// task keeps the blocking playTrack()/waitForAudioDone() sequence away from
+// both the WebSocket loop and the LED animation task. Carries the seat id and
+// the kind of announcement so the audio task knows which phrase to voice.
+enum CallKind : uint8_t {
+  CALL_SEAT     = 0,   // "Panggilan kursi nomor <N>"
+  CALL_SEATBELT = 1    // "kursi nomor <N> tidak memakai seatbelt"
+};
+struct CallEvent { char id[32]; uint8_t kind; };
 static QueueHandle_t callQueue;   // created in setup()
 
 // ─── Dynamic seat-ID provisioning ───────────────────────────────────
 // Unassigned seats all display "RandomID", but each includes a stable UID
 // derived from its MAC. The UID lets one command safely traverse/broadcast
 // through gateway chains while only the intended node accepts it.
-#define MAX_PENDING_PAIRINGS 16
+// Production buses can carry 50 seat nodes. Keep provisioning capacity aligned
+// with the 64-slot roster so a full unassigned fleet can be commissioned in
+// any order without exhausting the pending table.
+#define MAX_PENDING_PAIRINGS 64
 struct PendingPairing {
   char          uid[13];
   uint8_t       sourceClient;
@@ -114,12 +121,19 @@ static void pairingDropClient(uint8_t client) {
 
 static bool pairingIdValid(const char* id) {
   const size_t length = strlen(id);
-  if (length == 0 || length >= 32 || strcasecmp(id, "RandomID") == 0) return false;
-  for (size_t i = 0; i < length; ++i) {
-    const char c = id[i];
-    if (!isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '_') return false;
+  if (length == 0 || length > 3) return false;
+  if (length == 1 && (id[0] == 'A' || id[0] == 'a' ||
+                      id[0] == 'B' || id[0] == 'b')) {
+    return true;
   }
-  return true;
+  if (id[0] < '1' || id[0] > '9') return false;
+  size_t cursor = 1;
+  if (cursor < length && id[cursor] >= '0' && id[cursor] <= '9') ++cursor;
+  if (cursor < length && (id[cursor] == 'A' || id[cursor] == 'a' ||
+                          id[cursor] == 'B' || id[cursor] == 'b')) {
+    ++cursor;
+  }
+  return cursor == length;
 }
 
 static void sendPairingRequest(uint8_t headunitClient, const char* uid) {
@@ -133,8 +147,10 @@ static void sendPairingRequest(uint8_t headunitClient, const char* uid) {
 
 // ─── Seat roster — tracks every seat node that has reported in ────────
 // Updated only from onWsEvent (loop-task context), so no mutex needed.
-#define MAX_SEATS        32
+#define MAX_SEATS        64   // production target: 50 seats + 14 spare slots
 #define SEAT_OFFLINE_MS  15000   // no message for 15s → seat considered offline
+
+static_assert(MAX_SEATS >= 50, "Production SmartBus requires at least 50 seat slots");
 
 struct SeatInfo {
   char          id[32];
@@ -144,12 +160,16 @@ struct SeatInfo {
   unsigned long lastSeen;     // millis() of last message
   unsigned long callTime;     // millis() when callPending was latched
   bool          online;       // last-logged online state (for ONLINE/OFFLINE edge logging)
+  bool          seatbelt;      // last reported buckle state (true = fastened)
+  bool          seatbeltAlert; // latched: occupied while unbuckled, warning active
+  unsigned long lastSeatbeltWarnTime; // millis() when seatbelt warning was last queued
   bool          used;         // slot in use
   bool          viaUdp;       // false = legacy WebSocket/gateway transport
   IPAddress     sourceIp;      // last UDP source, if viaUdp
   uint32_t      udpSession;    // changes whenever a seat reboots
   uint32_t      udpSeq;        // last accepted packet in that session
   bool          hasUdpSeq;
+  uint16_t      pressure;      // ADC reading from seat FSR
 };
 static SeatInfo seats[MAX_SEATS];
 
@@ -178,30 +198,65 @@ static int rosterFind(const char* id) {
   return freeIdx;
 }
 
-// Upsert a seat from an incoming seat event.
-static void rosterUpdate(const char* id, int sensorState, bool occupied) {
-  if (id[0] == '\0') return;
+// Upsert a seat from an incoming seat event. Returns true only on the rising
+// edge of "occupied while unbuckled", so the caller can queue the warning once
+// instead of on every heartbeat.
+static bool rosterUpdate(const char* id, int sensorState, bool occupied,
+                         bool seatbelt) {
+  if (id[0] == '\0') return false;
   int i = rosterFind(id);
-  if (i < 0) { Serial.println("[Roster] full — seat ignored"); return; }
+  if (i < 0) { Serial.println("[Roster] full — seat ignored"); return false; }
   if (!seats[i].online) {
     seats[i].online = true;
     Serial.printf("[Seat] %s ONLINE\n", seats[i].id);
   }
   seats[i].occupied = occupied;
   seats[i].calling  = (sensorState != 0);
+
+  const bool alert  = occupied && !seatbelt;
+  const bool raised = alert && !seats[i].seatbeltAlert;
+  if (raised) {
+    Serial.printf("[Seatbelt] %s occupied without seatbelt\n", seats[i].id);
+  }
+  seats[i].seatbelt      = seatbelt;
+  seats[i].seatbeltAlert = alert;
+
   if (sensorState) {
     seats[i].callPending = true;
     seats[i].callTime    = millis();  // record when the call was raised
   }
   seats[i].lastSeen = millis();
+  return raised;
 }
 
 // Acknowledge/clear a seat's pending call. Returns true if the seat was found.
 static bool rosterClear(const char* id) {
   for (int i = 0; i < MAX_SEATS; i++) {
     if (seats[i].used && strcmp(seats[i].id, id) == 0) {
+      seats[i].calling = false;
       seats[i].callPending = false;
       Serial.printf("[Roster] call cleared for %s\n", id);
+      return true;
+    }
+  }
+  return false;
+}
+
+// Delete/unpair a seat from the roster.
+static bool rosterDelete(const char* id) {
+  for (int i = 0; i < MAX_SEATS; i++) {
+    if (seats[i].used && strcasecmp(seats[i].id, id) == 0) {
+      Serial.printf("[Roster] seat %s removed from roster\n", seats[i].id);
+      seats[i].used = false;
+      seats[i].id[0] = '\0';
+      seats[i].online = false;
+      seats[i].calling = false;
+      seats[i].callPending = false;
+      seats[i].occupied = false;
+      seats[i].seatbeltAlert = false;
+      seats[i].viaUdp = false;
+      seats[i].sourceIp = IPAddress();
+      seats[i].hasUdpSeq = false;
       return true;
     }
   }
@@ -222,9 +277,12 @@ static String rosterJson() {
     // Never expose stale state to the head unit. If the seat controller stops
     // reporting, its last "occupied" sample must not remain visible forever.
     obj["occupied"]    = isOnline && seats[i].occupied;
+    obj["pressure"]    = isOnline ? seats[i].pressure : 0;
     obj["calling"]     = isOnline && seats[i].calling;
     obj["callPending"] = seats[i].callPending;
     obj["online"]      = isOnline;
+    obj["seatbelt"]      = isOnline && seats[i].seatbelt;
+    obj["seatbeltAlert"] = isOnline && seats[i].seatbeltAlert;
   }
   String out;
   serializeJson(doc, out);
@@ -954,6 +1012,7 @@ void onWsEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
       if (stIdx >= 0) {
         int  state    = msg.substring(stIdx + 14).toInt();
         bool occupied = msg.indexOf("\"seatOccupied\":true") >= 0;
+        bool seatbelt = msg.indexOf("\"seatbelt\":true") >= 0;
 
         char id[32] = {0};
         char uid[13] = {0};
@@ -971,9 +1030,9 @@ void onWsEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
         const bool unassigned = strcmp(id, "RandomID") == 0 ||
                                 msg.indexOf("\"unassigned\":true") >= 0;
         if (unassigned) {
-          // Heartbeats register connectivity but only a real button call opens
+          // Heartbeats register connectivity; a button call or seat sensor/FSR opens
           // the popup, as requested by the provisioning workflow.
-          if (state && strlen(uid) == 12) {
+          if ((state || occupied) && strlen(uid) == 12) {
             int slot = pairingRemember(uid, num);
             if (slot < 0) {
               Serial.println("[Pairing] pending table full");
@@ -991,16 +1050,28 @@ void onWsEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
           setWsPeer(num, "seat", id);
         }
 
-        rosterUpdate(id, state, occupied);
+        const bool seatbeltRaised = rosterUpdate(id, state, occupied, seatbelt);
 
         // -- was: digitalWrite(LED_BUILTIN, state ? HIGH : LOW);
         //    The builtin LED now reports upstream internet status instead
         //    (see loop()), which is far more useful on a headless master
         //    than mirroring the last seat's button. --
+        if (seatbeltRaised) {
+          int slot = rosterFind(id);
+          if (slot >= 0 && (millis() - seats[slot].lastSeatbeltWarnTime >= 5000)) {
+            seats[slot].lastSeatbeltWarnTime = millis();
+            CallEvent belt;
+            strncpy(belt.id, id, sizeof(belt.id) - 1);
+            belt.id[sizeof(belt.id) - 1] = '\0';
+            belt.kind = CALL_SEATBELT;
+            xQueueSend(callQueue, &belt, 0);
+          }
+        }
         if (state) {
           CallEvent ev;
           strncpy(ev.id, id, sizeof(ev.id) - 1);
           ev.id[sizeof(ev.id) - 1] = '\0';
+          ev.kind = CALL_SEAT;
           xQueueSend(callQueue, &ev, 0);
         }
 
@@ -1050,6 +1121,33 @@ void onWsEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
         }
         webSocket.sendTXT(num, response);
 
+      } else if (msg.indexOf("\"action\":\"unpairSeat\"") >= 0 ||
+                 msg.indexOf("\"action\":\"clearSeatId\"") >= 0) {
+        StaticJsonDocument<256> doc;
+        deserializeJson(doc, msg);
+        const char* targetId = doc["id"] | "";
+        if (targetId[0] != '\0') {
+          char cmd[128];
+          snprintf(cmd, sizeof(cmd), "{\"action\":\"clearSeatId\",\"id\":\"%s\"}", targetId);
+          const IPAddress broadcastIp = WiFi.localIP() | ~WiFi.subnetMask();
+          // Seat client listens on port 5759 (SEAT_UDP_PORT)
+          udpSendJson(broadcastIp, 5759, cmd);
+          udpSendJson(broadcastIp, SMARTBUS_UDP_PORT, cmd);
+          for (int i = 0; i < MAX_SEATS; i++) {
+            if (seats[i].used && strcasecmp(seats[i].id, targetId) == 0) {
+              if (seats[i].viaUdp && seats[i].sourceIp != IPAddress()) {
+                udpSendJson(seats[i].sourceIp, 5759, cmd);
+              }
+              break;
+            }
+          }
+          webSocket.broadcastTXT(cmd);
+          rosterDelete(targetId);
+          String roster = rosterJson();
+          webSocket.broadcastTXT(roster);
+          Serial.printf("[Pairing] seat '%s' unpaired, clearSeatId sent to port 5759 & broadcast\n", targetId);
+        }
+
       } else if (msg == "roster") {
         String roster = rosterJson();
         webSocket.sendTXT(num, roster);
@@ -1060,30 +1158,45 @@ void onWsEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
           int idEnd = msg.indexOf("\"", idIdx + 6);
           msg.substring(idIdx + 6, idEnd).toCharArray(id, sizeof(id));
         }
-        if (id[0] != '\0') {
+        if (id[0] != '\0' && strcmp(id, "all") != 0) {
           rosterClear(id);
         } else {
-          for (int i = 0; i < MAX_SEATS; i++) seats[i].callPending = false;
+          for (int i = 0; i < MAX_SEATS; i++) {
+            seats[i].calling = false;
+            seats[i].callPending = false;
+          }
           Serial.println("[Roster] all calls cleared");
         }
+        String roster = rosterJson();
+        webSocket.broadcastTXT(roster);
       } else if (msg.startsWith("clearCall_")) {
         // Backward compatibility for older headunit builds, which send
         // `clearCall_<id>` instead of the canonical `clear_<id>` command.
         String id = msg.substring(10);
         if (id == "all") {
-          for (int i = 0; i < MAX_SEATS; i++) seats[i].callPending = false;
+          for (int i = 0; i < MAX_SEATS; i++) {
+            seats[i].calling = false;
+            seats[i].callPending = false;
+          }
           Serial.println("[Roster] all calls cleared (legacy clearCall_)");
         } else {
           rosterClear(id.c_str());
         }
+        String roster = rosterJson();
+        webSocket.broadcastTXT(roster);
       } else if (msg.startsWith("clear_")) {
         String id = msg.substring(6);
         if (id == "all") {
-          for (int i = 0; i < MAX_SEATS; i++) seats[i].callPending = false;
+          for (int i = 0; i < MAX_SEATS; i++) {
+            seats[i].calling = false;
+            seats[i].callPending = false;
+          }
           Serial.println("[Roster] all calls cleared");
         } else {
           rosterClear(id.c_str());
         }
+        String roster = rosterJson();
+        webSocket.broadcastTXT(roster);
 
       // ── Headunit-requested upstream WiFi control ──────────────────
       // Connect: {"action":"wifiConnect"}  (uses configured STA_SSID), or
@@ -1152,8 +1265,8 @@ static void printSeatTable() {
   const unsigned long now = millis();
   bool found = false;
 
-  Serial.println(F("\nID         LINK     TRANSPORT  IP              LAST     OCCUPIED  CALL  PENDING"));
-  Serial.println(F("---------- -------- ---------- --------------- -------- --------- ----- -------"));
+  Serial.println(F("\nID         LINK     TRANSPORT  IP              LAST     OCCUPIED  CALL  PENDING BELT"));
+  Serial.println(F("---------- -------- ---------- --------------- -------- --------- ----- ------- ----"));
   for (int i = 0; i < MAX_SEATS; ++i) {
     if (!seats[i].used) continue;
     found = true;
@@ -1162,7 +1275,9 @@ static void printSeatTable() {
     char age[16];
     snprintf(age, sizeof(age), "%lus", ageSeconds);
     const String sourceIp = seats[i].viaUdp ? seats[i].sourceIp.toString() : "-";
-    Serial.printf("%-10s %-8s %-10s %-15s %-8s %-9s %-5s %-7s\n",
+    const char* belt = !online ? "-" : (seats[i].seatbeltAlert ? "OPEN"
+                                   : seats[i].seatbelt     ? "ok" : "-");
+    Serial.printf("%-10s %-8s %-10s %-15s %-8s %-9s %-5s %-7s %-4s\n",
                   seats[i].id,
                   online ? "ONLINE" : "OFFLINE",
                   seats[i].viaUdp ? "UDP" : "WebSocket",
@@ -1170,7 +1285,8 @@ static void printSeatTable() {
                   age,
                   seats[i].occupied ? "YES" : "no",
                   seats[i].calling ? "YES" : "no",
-                  seats[i].callPending ? "YES" : "no");
+                  seats[i].callPending ? "YES" : "no",
+                  belt);
   }
   if (!found) Serial.println(F("(no seat has reported yet)"));
 }
@@ -1624,5 +1740,3 @@ bool waitForAudioDone(unsigned long startTimeoutMs = 1000,
 // mode 10: dual scanner
 // mode 11: color bounce
 // mode 12: snake
-
-

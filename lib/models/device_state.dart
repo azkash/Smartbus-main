@@ -26,6 +26,7 @@ class DeviceState extends ChangeNotifier {
   final Set<String> _activeCallSeats = {};
   final Set<String> _registeredSeatIds = {};
   String? _pendingPairingUid;
+  void Function(String payload)? onSeatPayloadUpdate;
 
   String get lastSeatPayload => _lastSeatPayload;
   Set<String> get activeCallSeats => _activeCallSeats;
@@ -119,10 +120,22 @@ class DeviceState extends ChangeNotifier {
   void updateSeatPayload(String payload) {
     _lastSeatPayload = payload;
     _parseAndTrackCallingSeats(payload);
+    onSeatPayloadUpdate?.call(payload);
     notifyListeners();
   }
 
   void clearCall(String seatId) {
+    _activeCallSeats.remove(seatId);
+    notifyListeners();
+  }
+
+  void clearAllCalls() {
+    _activeCallSeats.clear();
+    notifyListeners();
+  }
+
+  void unpairSeatLocal(String seatId) {
+    _registeredSeatIds.remove(seatId);
     _activeCallSeats.remove(seatId);
     notifyListeners();
   }
@@ -134,11 +147,12 @@ class DeviceState extends ChangeNotifier {
 
       if (data is List) {
         final Set<String> currentCallingInRoster = {};
+        final Set<String> currentRegisteredInRoster = {};
         for (var item in data) {
           if (item is Map) {
             final id = item['id']?.toString() ?? '';
             if (id.isNotEmpty && id != 'RandomID') {
-              _registeredSeatIds.add(id);
+              currentRegisteredInRoster.add(id);
             }
             final isCalling = item['calling'] == true ||
                 item['calling'] == 1 ||
@@ -152,6 +166,8 @@ class DeviceState extends ChangeNotifier {
             }
           }
         }
+        _registeredSeatIds.clear();
+        _registeredSeatIds.addAll(currentRegisteredInRoster);
         // Hapus kursi yang panggilannya sudah selesai / dimatikan dari roster
         _activeCallSeats
             .removeWhere((id) => !currentCallingInRoster.contains(id));

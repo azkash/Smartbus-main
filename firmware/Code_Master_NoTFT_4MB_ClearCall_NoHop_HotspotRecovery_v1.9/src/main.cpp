@@ -20,42 +20,52 @@ static constexpr int TRACK_TENS        = 14;  // "puluh"
 static constexpr int TRACK_SUFFIX_A    = 15;  // "A"
 static constexpr int TRACK_SUFFIX_B    = 16;  // "B"
 
-// Extract the first contiguous number from a friendly seat id and take A/B
-// immediately before or after it as the seat suffix. Accepted examples:
-// "21A", "A21", and "SEAT-21A". Numeric-only ids omit the suffix audio.
+// Seatbelt warning phrase, assembled as
+//   TRACK_SEATBELT_PREFIX + <seat number> + TRACK_SEATBELT_NO
+//   + TRACK_SEATBELT_USE + TRACK_SEATBELT_BELT
+// i.e. "kursi nomor <N> tidak memakai seatbelt".
+static constexpr int TRACK_SEATBELT_NO     = 17;  // "Tidak"
+static constexpr int TRACK_SEATBELT_USE    = 18;  // "Memakai"
+static constexpr int TRACK_SEATBELT_BELT   = 19;  // "Seatbelt"
+static constexpr int TRACK_SEATBELT_PREFIX = 20;  // "kursi nomor"
+
+// Parse the production seat-id grammar: A/B, 1..99, or 1..99 followed by A/B.
+// A letter-only front seat has no numeric part, so seatNumber is returned as 0
+// and the announcement consists of TRACK_CALL_PREFIX followed by A or B.
 static bool parseSeatIdForAudio(const char* id, uint8_t& seatNumber,
                                 int& suffixTrack) {
   if (id == nullptr || id[0] == '\0') return false;
 
-  const char* firstDigit = id;
-  while (*firstDigit != '\0' && (*firstDigit < '0' || *firstDigit > '9')) {
-    ++firstDigit;
+  seatNumber = 0;
+  suffixTrack = 0;
+  if (id[1] == '\0') {
+    if (id[0] == 'A' || id[0] == 'a') {
+      suffixTrack = TRACK_SUFFIX_A;
+      return true;
+    }
+    if (id[0] == 'B' || id[0] == 'b') {
+      suffixTrack = TRACK_SUFFIX_B;
+      return true;
+    }
   }
-  if (*firstDigit == '\0') return false;
+
+  if (id[0] < '1' || id[0] > '9') return false;
 
   unsigned int number = 0;
-  const char* afterDigits = firstDigit;
-  while (*afterDigits >= '0' && *afterDigits <= '9') {
-    number = number * 10 + static_cast<unsigned int>(*afterDigits - '0');
+  const char* cursor = id;
+  while (*cursor >= '0' && *cursor <= '9') {
+    number = number * 10 + static_cast<unsigned int>(*cursor - '0');
     if (number > 99) return false;
-    ++afterDigits;
+    ++cursor;
   }
-  if (number == 0) return false;
 
-  suffixTrack = 0;
-  const char suffixAfter = *afterDigits;
-  if (suffixAfter == 'A' || suffixAfter == 'a') suffixTrack = TRACK_SUFFIX_A;
-  if (suffixAfter == 'B' || suffixAfter == 'b') suffixTrack = TRACK_SUFFIX_B;
-
-  if (suffixTrack == 0) {
-    const char* beforeDigits = firstDigit;
-    while (beforeDigits > id) {
-      --beforeDigits;
-      const char candidate = *beforeDigits;
-      if (candidate == '-' || candidate == '_' || candidate == ' ') continue;
-      if (candidate == 'A' || candidate == 'a') suffixTrack = TRACK_SUFFIX_A;
-      if (candidate == 'B' || candidate == 'b') suffixTrack = TRACK_SUFFIX_B;
-      break;
+  if (*cursor != '\0') {
+    if ((cursor[0] == 'A' || cursor[0] == 'a') && cursor[1] == '\0') {
+      suffixTrack = TRACK_SUFFIX_A;
+    } else if ((cursor[0] == 'B' || cursor[0] == 'b') && cursor[1] == '\0') {
+      suffixTrack = TRACK_SUFFIX_B;
+    } else {
+      return false;
     }
   }
 
@@ -102,7 +112,6 @@ void audioTask(void*) {
   while (true) {
     CallEvent call;
     if (xQueueReceive(callQueue, &call, portMAX_DELAY) == pdTRUE) {
-      Serial.printf("[Seat] call from %s — voicing announcement\n", call.id);
       uint8_t seatNumber = 0;
       int suffixTrack = 0;
       if (!parseSeatIdForAudio(call.id, seatNumber, suffixTrack)) {
@@ -110,16 +119,35 @@ void audioTask(void*) {
         continue;
       }
 
-      Serial.printf("[Audio] parsed seat %s as number %u%s\n",
-                    call.id, seatNumber,
-                    suffixTrack == TRACK_SUFFIX_A ? "A" :
-                    suffixTrack == TRACK_SUFFIX_B ? "B" : "");
+      if (seatNumber == 0) {
+        Serial.printf("[Audio] parsed seat %s as letter-only %s\n", call.id,
+                      suffixTrack == TRACK_SUFFIX_A ? "A" : "B");
+      } else {
+        Serial.printf("[Audio] parsed seat %s as number %u%s\n",
+                      call.id, seatNumber,
+                      suffixTrack == TRACK_SUFFIX_A ? "A" :
+                      suffixTrack == TRACK_SUFFIX_B ? "B" : "");
+      }
+
       audioAnnouncementActive = true;
-      for (uint8_t repeat = 0; repeat < 2; ++repeat) {
-        Serial.printf("[Audio] announcement repeat %u/2\n", repeat + 1);
-        playAudioPart(TRACK_CALL_PREFIX);
-        playSeatNumber(seatNumber);
+      if (call.kind == CALL_SEATBELT) {
+        Serial.printf("[Seatbelt] %s occupied without seatbelt — voicing warning\n",
+                      call.id);
+        // "kursi nomor <N> tidak memakai seatbelt" — played once.
+        playAudioPart(TRACK_SEATBELT_PREFIX);
+        if (seatNumber != 0) playSeatNumber(seatNumber);
         if (suffixTrack != 0) playAudioPart(suffixTrack);
+        playAudioPart(TRACK_SEATBELT_NO);
+        playAudioPart(TRACK_SEATBELT_USE);
+        playAudioPart(TRACK_SEATBELT_BELT);
+      } else {
+        Serial.printf("[Seat] call from %s — voicing announcement\n", call.id);
+        for (uint8_t repeat = 0; repeat < 2; ++repeat) {
+          Serial.printf("[Audio] announcement repeat %u/2\n", repeat + 1);
+          playAudioPart(TRACK_CALL_PREFIX);
+          if (seatNumber != 0) playSeatNumber(seatNumber);
+          if (suffixTrack != 0) playAudioPart(suffixTrack);
+        }
       }
       audioAnnouncementActive = false;
     }
@@ -414,7 +442,15 @@ void setup() {
   // Delete this line to get the driver chatter back.
   esp_log_level_set("wifi", ESP_LOG_NONE);
 
-  callQueue = xQueueCreate(16, sizeof(CallEvent));  // seat-call announcements
+  // One entry per roster slot prevents a valid call from being dropped merely
+  // because many of the 50 production seats call within the same audio window.
+  // Playback remains sequential; this only protects admission to the queue.
+  callQueue = xQueueCreate(MAX_SEATS, sizeof(CallEvent));
+  if (!callQueue) {
+    Serial.println("[Audio] ERROR: could not allocate seat-call queue");
+    delay(1000);
+    ESP.restart();
+  }
   loadSettings();       // restore LED on/brightness/effect/rgb from NVS (before actInit)
 
   wifiInit();           // join fleet router in STA-only mode
@@ -481,6 +517,8 @@ void loop() {
       // from the controller will restore the actual state after it reconnects.
       seats[i].occupied = false;
       seats[i].calling = false;
+      seats[i].seatbelt = false;
+      seats[i].seatbeltAlert = false;
       Serial.printf("[Seat] %s OFFLINE\n", seats[i].id);
     }
 
@@ -540,8 +578,8 @@ void loop() {
     digitalWrite(LED_BUILTIN, LOW);
   }
 
-  // Broadcast current roster every 1 s.
-  if (now - lastBroadcast >= 1000) {
+  // Broadcast current roster every 0.5 s (500 ms).
+  if (now - lastBroadcast >= 500) {
     lastBroadcast = now;
     String roster = rosterJson();
     webSocket.broadcastTXT(roster);
@@ -553,5 +591,3 @@ void loop() {
     // }
   }
 }
-
-

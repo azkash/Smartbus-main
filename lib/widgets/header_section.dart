@@ -8,15 +8,19 @@ import '../services/mqtt_service.dart';
 import '../services/weather_location_service.dart';
 import 'wifi_signal_icon.dart';
 import 'network_log_dialog.dart';
+import 'borlindo_sync_dialog.dart';
+import 'seat_list_dialog.dart';
 
 class HeaderSection extends StatefulWidget {
   final int currentIndex;
   final ValueChanged<int> onTabChanged;
+  final bool isPassengerOnly;
 
   const HeaderSection({
     Key? key,
     required this.currentIndex,
     required this.onTabChanged,
+    this.isPassengerOnly = false,
   }) : super(key: key);
 
   @override
@@ -535,9 +539,11 @@ class _HeaderSectionState extends State<HeaderSection> {
               ],
             ),
           ),
-          SizedBox(width: isLandscape ? 20 : 10),
-          _buildNavTabs(isLandscape),
-          SizedBox(width: isLandscape ? 15 : 8),
+          if (!widget.isPassengerOnly) ...[
+            SizedBox(width: isLandscape ? 12 : 6),
+            _buildNavTabs(isLandscape),
+          ],
+          SizedBox(width: isLandscape ? 10 : 6),
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.blueAccent.withOpacity(0.12),
@@ -545,8 +551,8 @@ class _HeaderSectionState extends State<HeaderSection> {
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10)),
               padding: EdgeInsets.symmetric(
-                  horizontal: isLandscape ? 12 : 8,
-                  vertical: isLandscape ? 10 : 8),
+                  horizontal: isLandscape ? 10 : 7,
+                  vertical: isLandscape ? 9 : 7),
             ),
             icon: const Icon(Icons.wifi_find_rounded,
                 color: Colors.blueAccent, size: 14),
@@ -560,7 +566,7 @@ class _HeaderSectionState extends State<HeaderSection> {
             ),
             onPressed: () => _showIPDialog(mqtt, s),
           ),
-          SizedBox(width: isLandscape ? 8 : 4),
+          SizedBox(width: isLandscape ? 6 : 4),
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF0F172A),
@@ -568,8 +574,8 @@ class _HeaderSectionState extends State<HeaderSection> {
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10)),
               padding: EdgeInsets.symmetric(
-                  horizontal: isLandscape ? 10 : 6,
-                  vertical: isLandscape ? 10 : 8),
+                  horizontal: isLandscape ? 9 : 6,
+                  vertical: isLandscape ? 9 : 7),
             ),
             icon: const Icon(Icons.terminal_rounded,
                 color: Color(0xFF38BDF8), size: 14),
@@ -583,7 +589,53 @@ class _HeaderSectionState extends State<HeaderSection> {
             ),
             onPressed: () => NetworkLogDialog.show(context),
           ),
-          SizedBox(width: isLandscape ? 12 : 6),
+          SizedBox(width: isLandscape ? 6 : 4),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0F172A),
+              side: const BorderSide(color: Color(0xFF38BDF8), width: 1),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+              padding: EdgeInsets.symmetric(
+                  horizontal: isLandscape ? 9 : 6,
+                  vertical: isLandscape ? 9 : 7),
+            ),
+            icon: const Icon(Icons.cloud_sync_rounded,
+                color: Color(0xFF38BDF8), size: 14),
+            label: const Text(
+              "INTEGRASI API",
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.5),
+            ),
+            onPressed: () => BorlindoSyncDialog.show(context),
+          ),
+          SizedBox(width: isLandscape ? 6 : 4),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0F172A),
+              side: const BorderSide(color: Color(0xFF10B981), width: 1),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+              padding: EdgeInsets.symmetric(
+                  horizontal: isLandscape ? 9 : 6,
+                  vertical: isLandscape ? 9 : 7),
+            ),
+            icon: const Icon(Icons.event_seat_rounded,
+                color: Color(0xFF10B981), size: 14),
+            label: const Text(
+              "DAFTAR KURSI",
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.5),
+            ),
+            onPressed: () => SeatListDialog.show(context),
+          ),
+          SizedBox(width: isLandscape ? 8 : 4),
           Container(
             padding: EdgeInsets.symmetric(
                 horizontal: isLandscape ? 10 : 7, vertical: 6),

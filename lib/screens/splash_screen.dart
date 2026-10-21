@@ -1,10 +1,14 @@
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import '../models/app_config.dart';
 import 'main_control_screen.dart';
+import 'passenger_screen.dart';
 
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key});
+  final bool isPassengerOnly;
+
+  const SplashScreen({super.key, this.isPassengerOnly = false});
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -59,11 +63,16 @@ class _SplashScreenState extends State<SplashScreen>
 
     Timer(const Duration(seconds: 4), () {
       if (mounted) {
+        final bool passengerOnly =
+            widget.isPassengerOnly || AppConfig.isPassengerOnly;
+        final Widget targetScreen = passengerOnly
+            ? const PassengerScreen()
+            : const MainControlScreen();
+
         Navigator.of(context).pushReplacement(
           PageRouteBuilder(
             transitionDuration: const Duration(milliseconds: 1200),
-            pageBuilder: (context, anim, secondAnim) =>
-                const MainControlScreen(),
+            pageBuilder: (context, anim, secondAnim) => targetScreen,
             transitionsBuilder: (context, anim, secondAnim, child) =>
                 FadeTransition(opacity: anim, child: child),
           ),

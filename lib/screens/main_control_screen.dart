@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/device_state.dart';
 import '../models/control_panel_state.dart';
 import '../services/mqtt_service.dart';
+import '../services/borlindo_api_service.dart';
 import '../services/headunit_http_server.dart';
 import '../widgets/header_section.dart';
 import '../widgets/passenger_web_view.dart';
@@ -49,6 +50,17 @@ class _MainControlScreenState extends State<MainControlScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       final mqtt = Provider.of<MqttService>(context, listen: false);
+      final borlindoApi =
+          Provider.of<BorlindoApiService>(context, listen: false);
+
+      deviceState.onSeatPayloadUpdate = (payload) {
+        borlindoApi.onSeatPayloadReceived(payload);
+      };
+      borlindoApi.onLogCallback = (title, {message, isError = false}) {
+        mqtt.addLog(title,
+            type: isError ? LogType.error : LogType.action, message: message);
+      };
+
       mqtt.connect(deviceState);
 
       // Panggil background service pemantau notifikasi secara aman

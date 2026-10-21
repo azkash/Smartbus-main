@@ -48,8 +48,10 @@ static void udpHandleSeat(JsonDocument& doc, const IPAddress& remoteIp,
   const char* uid = doc["uid"] | "";
   const int state = doc["sensorState"] | 0;
   const bool occupied = doc["seatOccupied"] | false;
+  const bool seatbelt = doc["seatbelt"] | false;
   const uint32_t session = doc["session"] | 0U;
   const uint32_t seq = doc["seq"] | 0U;
+  const uint16_t pressure = doc["pressure"] | (occupied ? 800 : 0);
 
   if (strlen(uid) != 12 || seq == 0 || session == 0) {
     Serial.printf("[UDP] invalid seat packet from %s\n", remoteIp.toString().c_str());
@@ -62,7 +64,7 @@ static void udpHandleSeat(JsonDocument& doc, const IPAddress& remoteIp,
   const bool unassigned = strcmp(id, "RandomID") == 0 ||
                           (doc["unassigned"] | false);
   if (unassigned) {
-    if (state) {
+    if (state || occupied) {
       const int slot = pairingRememberUdp(uid, remoteIp, remotePort);
       if (slot < 0) {
         Serial.println("[Pairing] pending table full");
@@ -82,6 +84,7 @@ static void udpHandleSeat(JsonDocument& doc, const IPAddress& remoteIp,
   }
 
   SeatInfo& seat = seats[slot];
+  seat.pressure = pressure;
   const bool sameSession = seat.hasUdpSeq && seat.udpSession == session;
   const bool duplicateOrOld = sameSession &&
                               static_cast<int32_t>(seq - seat.udpSeq) <= 0;
@@ -96,6 +99,7 @@ static void udpHandleSeat(JsonDocument& doc, const IPAddress& remoteIp,
 
   // Duplicates still refresh connectivity/occupancy, but must never replay
   // call audio, clear the instantaneous call flag, or extend its timestamp.
+  bool seatbeltRaised = false;
   if (duplicateOrOld) {
     if (!seat.online) {
       seat.online = true;
@@ -104,11 +108,27 @@ static void udpHandleSeat(JsonDocument& doc, const IPAddress& remoteIp,
     seat.occupied = occupied;
     seat.lastSeen = millis();
   } else {
-    rosterUpdate(id, state, occupied);
+    seatbeltRaised = rosterUpdate(id, state, occupied, seatbelt);
+  }
+  // Rising edge of "occupied while unbuckled" → one warning announcement.
+  // Gated by a 5-second lockout per seat to prevent sound queue spamming.
+  if (seatbeltRaised) {
+    if (millis() - seat.lastSeatbeltWarnTime >= 5000) {
+      seat.lastSeatbeltWarnTime = millis();
+      CallEvent belt;
+      strlcpy(belt.id, id, sizeof(belt.id));
+      belt.kind = CALL_SEATBELT;
+      xQueueSend(callQueue, &belt, 0);
+      Serial.printf("[UDP] SEATBELT %s seq=%lu from %s (audio queued)\n", id,
+                    (unsigned long)seq, remoteIp.toString().c_str());
+    } else {
+      Serial.printf("[UDP] SEATBELT %s audio suppressed (5s cooldown active)\n", id);
+    }
   }
   if (state && !duplicateOrOld) {
     CallEvent ev;
     strlcpy(ev.id, id, sizeof(ev.id));
+    ev.kind = CALL_SEAT;
     xQueueSend(callQueue, &ev, 0);
     Serial.printf("[UDP] CALL %s seq=%lu from %s\n", id,
                   (unsigned long)seq, remoteIp.toString().c_str());
@@ -155,5 +175,3 @@ static void udpTransportLoop() {
     }
   }
 }
-
-

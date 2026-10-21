@@ -4,8 +4,11 @@ import 'package:provider/provider.dart';
 
 import 'models/device_state.dart';
 import 'services/mqtt_service.dart';
+import 'services/borlindo_api_service.dart';
 
+import 'models/app_config.dart';
 import 'widgets/seat_pairing_dialog.dart';
+import 'widgets/global_call_banner.dart';
 import 'screens/splash_screen.dart';
 import 'theme/automotive_theme.dart';
 
@@ -28,24 +31,32 @@ void main() {
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final bool isPassengerOnly;
+
+  const MyApp({super.key, this.isPassengerOnly = false});
 
   @override
   Widget build(BuildContext context) {
+    AppConfig.mode = isPassengerOnly ? AppMode.passengerOnly : AppMode.full;
+
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => DeviceState()),
         Provider(create: (_) => MqttService()),
+        ChangeNotifierProvider(create: (_) => BorlindoApiService()),
       ],
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        title: 'Safety Protection System',
+        title: isPassengerOnly
+            ? 'SmartBus Passenger Monitor'
+            : 'Safety Protection System',
         theme: AutomotiveTheme.dark(),
-        home: const SplashScreen(),
+        home: SplashScreen(isPassengerOnly: isPassengerOnly),
         builder: (context, child) {
           return Stack(
             children: [
               if (child != null) child,
+              const GlobalCallBanner(),
               const SeatPairingDialog(),
             ],
           );
