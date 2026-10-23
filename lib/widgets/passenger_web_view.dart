@@ -71,6 +71,22 @@ class _PassengerWebViewState extends State<PassengerWebView> {
                   ),
                 );
               }
+            } else if (action == 'unpairSeat' || action == 'clearSeatId') {
+              final seatTarget = (data['id'] ?? data['seatId'])?.toString() ?? '';
+              if (seatTarget.isNotEmpty) {
+                final mqtt = Provider.of<MqttService>(context, listen: false);
+                final s = Provider.of<DeviceState>(context, listen: false);
+                await mqtt.unpairSeat(seatTarget);
+                s.unpairSeatLocal(seatTarget);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text("✅ Pairing Kursi $seatTarget berhasil dihapus"),
+                      backgroundColor: const Color(0xFF059669),
+                    ),
+                  );
+                }
+              }
             }
           } catch (e) {
             debugPrint("Gagal mengurai pesan dari React WebView: $e");

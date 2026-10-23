@@ -717,17 +717,16 @@ static void applySeatIdCommand(JsonDocument& doc) {
 }
 
 static void applyClearSeatIdCommand(JsonDocument& doc) {
-  const char* targetId = doc["id"] | "";
-  if (targetId[0] != '\0' && strcasecmp(targetId, seatId) == 0) {
+  const char* targetId  = doc["id"]  | "";
+  const char* targetUid = doc["uid"] | "";
+  bool match = false;
+  if (targetId[0] != '\0' && strcasecmp(targetId, seatId) == 0) match = true;
+  if (targetUid[0] != '\0' && strcasecmp(targetUid, nodeUid) == 0) match = true;
+  if (match) {
     clearSeatId();
-    strlcpy(seatId, "RandomID", sizeof(seatId));
-    seatIdAssigned = false;
-    Serial.printf("[Seat] pairing cleared: reset to RandomID\n");
-    bool occupied;
-    xSemaphoreTake(dataMutex, portMAX_DELAY);
-    occupied = seatOccupied;
-    xSemaphoreGive(dataMutex);
-    sendSeatEvent(0, occupied);
+    Serial.printf("[Seat] pairing cleared for '%s' (UID: %s) via app command — restarting in RandomID pairing mode...\n", seatId, nodeUid);
+    delay(200);
+    ESP.restart();
   }
 }
 

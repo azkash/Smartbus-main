@@ -84,6 +84,9 @@ static void udpHandleSeat(JsonDocument& doc, const IPAddress& remoteIp,
   }
 
   SeatInfo& seat = seats[slot];
+  if (strlen(uid) == 12) {
+    strlcpy(seat.uid, uid, sizeof(seat.uid));
+  }
   seat.pressure = pressure;
   const bool sameSession = seat.hasUdpSeq && seat.udpSession == session;
   const bool duplicateOrOld = sameSession &&

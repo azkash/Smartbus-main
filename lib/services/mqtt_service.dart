@@ -107,6 +107,8 @@ class MqttService with ChangeNotifier {
   bool get isLocalWsConnected => _isLocalWsConnected;
   bool _isConnectingLocalWs = false;
   Timer? _reconnectTimer;
+  Timer? _wsWatchdogTimer;
+  DateTime? _lastWsMessageTime;
   String? _lastConnectedHost;
   String? _cachedEspIp;
   int _failedDirectAttempts = 0;
@@ -203,9 +205,13 @@ class MqttService with ChangeNotifier {
   }) async {
     if (forceReconnect) {
       _reconnectTimer?.cancel();
+      _wsWatchdogTimer?.cancel();
+      _wsWatchdogTimer = null;
+      _lastWsMessageTime = null;
       final previousSocket = _localSocket;
       _localSocket = null;
       _isLocalWsConnected = false;
+      _isConnectingLocalWs = false;
       try {
         await previousSocket?.close();
       } catch (_) {}
@@ -358,10 +364,19 @@ class MqttService with ChangeNotifier {
 
       // 4. TAHAP 3: Simpan IP sukses dan register Headunit
       if (connectedSocket != null && successfulHost != null) {
+        // Aktifkan TCP Ping Interval (setiap 2 detik) agar OS/kernel mendeteksi soket mati
+        try {
+          connectedSocket.pingInterval = const Duration(seconds: 2);
+        } catch (e) {
+          debugPrint("Gagal mengatur pingInterval: $e");
+        }
+
         _localSocket = connectedSocket;
         _isLocalWsConnected = true;
         _failedDirectAttempts = 0;
         _cachedEspIp = successfulHost;
+        _lastWsMessageTime = DateTime.now();
+        _startWsWatchdog(deviceState);
         notifyListeners();
 
         try {
@@ -381,6 +396,7 @@ class MqttService with ChangeNotifier {
         // Dengarkan broadcast pesan
         _localSocket!.listen(
           (message) {
+            _lastWsMessageTime = DateTime.now();
             try {
               if (message is String) {
                 // Debug log: tampilkan ringkasan setiap pesan masuk
@@ -507,12 +523,45 @@ class MqttService with ChangeNotifier {
     }
   }
 
+  void _startWsWatchdog(DeviceState deviceState) {
+    _wsWatchdogTimer?.cancel();
+    _wsWatchdogTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!_isLocalWsConnected || _localSocket == null) {
+        timer.cancel();
+        return;
+      }
+      if (_lastWsMessageTime != null) {
+        final elapsedMs =
+            DateTime.now().difference(_lastWsMessageTime!).inMilliseconds;
+        // Master ESP32 secara aktif membroadcast data roster setiap 500ms (0.5s).
+        // Jika selama 3500ms (3.5 detik) tidak ada data masuk dari Master sama sekali,
+        // berarti Master mati / reboot / putus jaringan Wi-Fi.
+        if (elapsedMs > 3500) {
+          addLog(
+            "Watchdog: Master tidak merespons (${(elapsedMs / 1000).toStringAsFixed(1)}s)",
+            type: LogType.error,
+            code: "WS_SILENCE_TIMEOUT",
+          );
+          debugPrint(
+              "[WS-WATCHDOG] Silence timeout (${elapsedMs}ms). Memutuskan soket zombie...");
+          timer.cancel();
+          _handleLocalWsDisconnect(deviceState);
+        }
+      }
+    });
+  }
+
   void _handleLocalWsDisconnect(DeviceState deviceState) {
-    try {
-      _localSocket?.close();
-    } catch (_) {}
-    _isLocalWsConnected = false;
+    _wsWatchdogTimer?.cancel();
+    _wsWatchdogTimer = null;
+    _lastWsMessageTime = null;
+    final socketToClose = _localSocket;
     _localSocket = null;
+    _isLocalWsConnected = false;
+    _isConnectingLocalWs = false;
+    try {
+      socketToClose?.close();
+    } catch (_) {}
     final pairing = _pairingCompleter;
     if (pairing != null && !pairing.isCompleted) {
       pairing.complete(
@@ -521,10 +570,9 @@ class MqttService with ChangeNotifier {
     notifyListeners();
 
     _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(const Duration(seconds: 3), () {
-      if (_lastConnectedHost != null) {
-        connectLocalWs(_lastConnectedHost!, deviceState);
-      }
+    _reconnectTimer = Timer(const Duration(seconds: 2), () {
+      final host = _lastConnectedHost ?? deviceState.mqttHost;
+      connectLocalWs(host, deviceState);
     });
   }
 
@@ -607,6 +655,9 @@ class MqttService with ChangeNotifier {
         );
       } else {
         _reconnectTimer?.cancel();
+        _wsWatchdogTimer?.cancel();
+        _wsWatchdogTimer = null;
+        _lastWsMessageTime = null;
         _isLocalWsConnected = false;
         _localSocket?.close();
         _localSocket = null;

@@ -479,7 +479,9 @@ class _SeatPairingDialogState extends State<SeatPairingDialog> {
             onPressed: () async {
               Navigator.pop(dialogCtx);
               final mqtt = Provider.of<MqttService>(context, listen: false);
+              final deviceState = Provider.of<DeviceState>(context, listen: false);
               await mqtt.unpairSeat(seatId);
+              deviceState.unpairSeatLocal(seatId);
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
